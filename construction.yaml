@@ -1,0 +1,31 @@
+# Dataset phương tiện kho bãi / công trường để fine-tune YOLO (xem README mục 7).
+#   yolo detect train model=yolo11n.pt data=construction.yaml epochs=50 imgsz=640
+#
+# Cấu trúc thư mục (nhãn định dạng YOLO: "class cx cy w h", toạ độ chuẩn hoá 0–1):
+#   data/construction/
+#     images/train/*.jpg   labels/train/*.txt
+#     images/val/*.jpg     labels/val/*.txt
+#     images/test/*.jpg    labels/test/*.txt   (không bắt buộc)
+# Mỗi ảnh có một file .txt cùng tên; ảnh không có vật thể thì để file rỗng.
+#
+# Chỉ gán nhãn PHƯƠNG TIỆN. Người do mô hình pose (yolo11n-pose.pt) phát hiện riêng.
+# Thêm/bớt lớp thì sửa danh sách dưới đây, rồi cập nhật VEHICLE_CLASSES và
+# CLASS_HEIGHT_M trong app/config.py cho khớp đúng chỉ số và tên lớp.
+
+path: data/construction   # tính từ thư mục chạy lệnh (safety-monitor/)
+train: images/train
+val: images/val
+test: images/test
+
+names:
+  0: forklift          # xe nâng
+  1: excavator         # máy xúc / máy đào
+  2: wheel_loader      # máy xúc lật
+  3: backhoe_loader    # máy xúc đào liên hợp
+  4: bulldozer         # máy ủi
+  5: dump_truck        # xe ben
+  6: concrete_mixer    # xe bồn trộn bê tông
+  7: mobile_crane      # xe cẩu
+  8: roller            # xe lu
+  9: car               # ô tô con
+  10: truck            # xe tải thường

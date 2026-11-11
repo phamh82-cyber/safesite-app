@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SafeSite – Giám sát tai nạn lao động</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="brand"><div class="logo">⚠</div><div>SafeSite<small>Giám sát tai nạn lao động</small></div></div>
+    <nav class="nav">
+      <button data-view="monitor" class="active">▣ Giám sát <span class="badge" id="badge-new" data-n="0"></span></button>
+      <button data-view="events">☰ Sự kiện</button>
+      <button data-view="cameras">◉ Camera</button>
+      <button data-view="stats">▤ Thống kê</button>
+      <button data-view="settings">⚙ Cài đặt</button>
+    </nav>
+    <div class="foot"><span class="dot" id="ws-dot"></span><span id="ws-text">Đang kết nối…</span></div>
+  </aside>
+
+  <main>
+    <!-- GIÁM SÁT -->
+    <section class="view active" id="view-monitor">
+      <div class="top"><div><h1>Giám sát trực tiếp</h1><div class="sub" id="monitor-sub">—</div></div>
+        <div class="row"><button class="btn" id="btn-sound">🔔 Âm thanh: bật</button><button class="btn primary" data-goto="cameras">+ Thêm camera</button></div></div>
+      <div class="monitor">
+        <div class="grid" id="tiles"></div>
+        <div class="card"><h3>Cảnh báo realtime <span class="chip" id="feed-count">0</span></h3><div class="feed" id="feed"><div class="empty">Chưa có cảnh báo</div></div></div>
+      </div>
+    </section>
+
+    <!-- SỰ KIỆN -->
+    <section class="view" id="view-events">
+      <div class="top"><div><h1>Nhật ký sự kiện</h1><div class="sub" id="events-sub"></div></div>
+        <div class="row">
+          <select id="f-type"><option value="">Mọi loại</option></select>
+          <select id="f-sev"><option value="">Mọi mức độ</option><option value="critical">Nghiêm trọng</option><option value="warning">Cảnh báo</option></select>
+          <select id="f-status"><option value="">Mọi trạng thái</option><option value="new">Mới</option><option value="ack">Đã xác nhận</option><option value="false_alarm">Báo nhầm</option><option value="resolved">Đã xử lý</option></select>
+          <select id="f-cam"><option value="">Mọi camera</option></select>
+          <button class="btn" id="btn-export">Xuất CSV</button>
+        </div></div>
+      <div class="card"><table><thead><tr><th>Ảnh</th><th>Thời gian</th><th>Loại</th><th>Mức độ</th><th>Camera</th><th>Đối tượng</th><th>Độ tin cậy</th><th>Trạng thái</th></tr></thead><tbody id="ev-rows"></tbody></table>
+        <div class="body row"><button class="btn sm" id="pg-prev">‹ Trước</button><span class="hint" id="pg-info"></span><button class="btn sm" id="pg-next">Sau ›</button></div></div>
+    </section>
+
+    <!-- CAMERA -->
+    <section class="view" id="view-cameras">
+      <div class="top"><div><h1>Nguồn video</h1><div class="sub">File video, webcam hoặc camera IP (RTSP)</div></div></div>
+      <div class="stack">
+        <div class="card"><h3>Thêm nguồn</h3><div class="body">
+          <div class="form">
+            <label class="f">Tên camera<input type="text" id="c-name" placeholder="VD: Cổng kho A"></label>
+            <label class="f">Loại nguồn<select id="c-type"><option value="file">File video</option><option value="webcam">Webcam</option><option value="rtsp">Camera IP (RTSP/HTTP)</option></select></label>
+            <label class="f" id="c-file-wrap">Chọn file<input type="file" id="c-file" accept="video/*"></label>
+            <label class="f" id="c-src-wrap" style="display:none">Địa chỉ<input type="text" id="c-src" placeholder="0 hoặc rtsp://user:pass@ip:554/stream"></label>
+          </div>
+          <div class="row" style="margin-top:12px">
+            <label class="check"><input type="checkbox" id="c-loop"> Lặp lại video</label>
+            <label class="check"><input type="checkbox" id="c-auto"> Tự chạy khi khởi động</label>
+            <button class="btn primary" id="c-add" style="margin-left:auto">Thêm và chạy</button>
+          </div>
+          <div class="hint" id="c-msg" style="margin-top:8px"></div>
+        </div></div>
+        <div class="card"><h3>Danh sách camera</h3><table><thead><tr><th>Tên</th><th>Nguồn</th><th>Trạng thái</th><th>Mặt nền</th><th></th></tr></thead><tbody id="cam-rows"></tbody></table></div>
+      </div>
+    </section>
+
+    <!-- THỐNG KÊ -->
+    <section class="view" id="view-stats">
+      <div class="top"><div><h1>Thống kê</h1><div class="sub">Tổng hợp từ nhật ký sự kiện và phản hồi của người giám sát</div></div><button class="btn danger" id="btn-clear">Xóa toàn bộ sự kiện</button></div>
+      <div class="stack">
+        <div class="kpis" id="kpis"></div>
+        <div class="card"><h3>Số sự kiện theo loại</h3><div class="body bars" id="bars-type"></div></div>
+        <div class="card"><h3>Số sự kiện theo ngày</h3><div class="body bars" id="bars-day"></div></div>
+        <div class="card"><h3>Phản hồi của người giám sát</h3><div class="body" id="feedback"></div></div>
+      </div>
+    </section>
+
+    <!-- CÀI ĐẶT -->
+    <section class="view" id="view-settings">
+      <div class="top"><div><h1>Cài đặt ngưỡng</h1><div class="sub">Thay đổi có hiệu lực ngay với camera đang chạy</div></div><div><button class="btn primary" id="btn-save-settings">Lưu cài đặt</button></div></div>
+      <div class="hint" id="settings-msg" style="color:#ff6b6b;margin:6px 0;min-height:1.2em"></div>
+      <div id="settings-form"></div>
+    </section>
+  </main>
+</div>
+
+<!-- Modal chi tiết sự kiện -->
+<div class="modal" id="m-event"><div class="box">
+  <div class="head"><h2 id="me-title">Sự kiện</h2><span id="me-sev"></span><button class="btn sm x" data-close>Đóng ✕</button></div>
+  <div class="content">
+    <div class="media"><img id="me-img" alt="Ảnh lúc xảy ra sự kiện"><div id="me-clip"></div></div>
+    <div class="kv" id="me-kv"></div>
+    <label class="f">Ghi chú<textarea id="me-note" rows="2" placeholder="VD: đã cử người kiểm tra"></textarea></label>
+    <div class="row" style="margin-top:12px">
+      <button class="btn" data-status="ack">✓ Xác nhận</button>
+      <button class="btn" data-status="resolved">Đã xử lý</button>
+      <button class="btn danger" data-status="false_alarm">Báo nhầm</button>
+    </div>
+  </div></div></div>
+
+<!-- Modal hiệu chỉnh -->
+<div class="modal" id="m-calib"><div class="box">
+  <div class="head"><h2>Hiệu chỉnh mặt nền</h2><button class="btn sm x" data-close>Đóng ✕</button></div>
+  <div class="content">
+    <p class="hint">Bấm lần lượt 4 góc của một hình chữ nhật nằm trên mặt đất (vạch sơn, viên gạch, ô đỗ xe) theo thứ tự <b>A → B → C → D</b> (theo chiều kim đồng hồ). Nhập chiều dài cạnh AB và BC đo thực tế.</p>
+    <div class="calib" id="calib-wrap"><img id="calib-img" alt="Khung hình camera"><svg id="calib-svg"></svg></div>
+    <div class="form" style="margin-top:12px">
+      <label class="f">Cạnh AB (m)<input type="number" id="cal-w" value="4" step="0.1" min="0.1"></label>
+      <label class="f">Cạnh BC (m)<input type="number" id="cal-l" value="6" step="0.1" min="0.1"></label>
+    </div>
+    <div class="row" style="margin-top:12px"><span class="hint" id="cal-msg">Đã chọn 0/4 điểm</span>
+      <button class="btn" id="cal-reset" style="margin-left:auto">Chọn lại</button>
+      <button class="btn danger" id="cal-clear">Bỏ hiệu chỉnh (dùng tự động)</button>
+      <button class="btn primary" id="cal-save">Lưu</button></div>
+  </div></div></div>
+
+<!-- Modal sửa camera -->
+<div class="modal" id="m-cam"><div class="box">
+  <div class="head"><h2>Sửa camera</h2><button class="btn sm x" data-close>Đóng ✕</button></div>
+  <div class="content">
+    <div class="form">
+      <label class="f">Tên camera<input type="text" id="e-name"></label>
+      <label class="f" id="e-type-wrap">Loại nguồn<select id="e-type"><option value="webcam">Webcam</option><option value="rtsp">Camera IP (RTSP/HTTP)</option></select></label>
+      <label class="f" id="e-src-wrap">Địa chỉ<input type="text" id="e-src"></label>
+    </div>
+    <p class="hint" id="e-hint">Đổi địa chỉ thì camera tự chạy lại với nguồn mới. Hiệu chỉnh mặt nền được giữ nguyên.</p>
+    <div class="row" style="margin-top:12px">
+      <label class="check" id="e-loop-wrap"><input type="checkbox" id="e-loop"> Lặp lại video</label>
+      <label class="check"><input type="checkbox" id="e-auto"> Tự chạy khi khởi động</label>
+      <span class="hint" id="e-msg"></span>
+      <button class="btn primary" id="e-save" style="margin-left:auto">Lưu</button>
+    </div>
+  </div></div></div>
+
+<div class="toasts" id="toasts"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>
