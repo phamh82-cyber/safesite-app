@@ -1,6 +1,7 @@
 """Phát hiện té ngã dựa trên khung xương (pose) + máy trạng thái.
 
 NORMAL ──rơi nhanh──▶ DESCENDING ──nằm──▶ LYING ──giữ lying_hold──▶ FALLEN ──bất động──▶ (FALL_IMMOBILE)
+  │                        └──mất tracking──▶ POSSIBLE_FALL ──xác minh──▶ LYING/FALLEN
   │                        └──quá confirm_window không nằm──▶ NORMAL (chỉ là cúi/ngồi)
   └──nằm mà không có pha rơi──▶ LYING_SLOW ──bất động person_down_after──▶ DOWN (PERSON_DOWN)
 FALLEN / DOWN ──đứng dậy recover_hold──▶ NORMAL
@@ -75,12 +76,22 @@ class FallAnalyzer:
         st["phase"], st["t_phase"] = phase, t
 
     def _lying(self, f: dict) -> bool:
+        return f.get("lying_score", self._lying_score(f)) >= 0.7
+
+    def _lying_score(self, f: dict) -> float:
         c = self.cfg
-        if f["valid"] and f["theta"] >= c.lying_angle and f["h_ratio"] < 0.75:
-            return True
-        if f["ar"] >= c.lying_aspect:
-            return True
-        return f["h_ratio"] < 0.45 and (not f["valid"] or f["theta"] >= 40)
+        pose = 0.0
+        if f["valid"]:
+            pose = float(np.clip((f["theta"] - 35.0) / max(c.lying_angle - 35.0, 1.0), 0.0, 1.0))
+            if f["theta"] < c.upright_angle:
+                pose = 0.0
+        height = float(np.clip((0.9 - f["h_ratio"]) / 0.55, 0.0, 1.0))
+        aspect = float(np.clip((f["ar"] - 1.0) / max(c.lying_aspect - 1.0, 0.1), 0.0, 1.0))
+        score = 0.55 * pose + 0.25 * height + 0.20 * aspect
+        # A wide box alone is weak evidence; require corroboration from pose/height.
+        if f["valid"] and f["theta"] < 40.0:
+            score = min(score, 0.45)
+        return float(np.clip(score, 0.0, 1.0))
 
     def _upright(self, f: dict) -> bool:
         if f["valid"]:
@@ -130,12 +141,13 @@ class FallAnalyzer:
         for tr in tm.persons():
             st = tr.state.get("fall")
             if tr.lost:
-                # Mất dấu ngay sau pha rơi nhanh: detector thường không thấy người nằm
+                # Mất dấu chỉ tạo nghi vấn; không đủ bằng chứng để xác nhận FALL.
                 if st and st["phase"] in ("DESCENDING", "LYING") and t - tr.lost_since >= 1.5 \
                         and not self._touches_border(tr.last.box) and not st.get("lost_alert"):
                     st["lost_alert"] = True
-                    events.append(self._event(tr, "FALL", "critical", 0.5, t,
-                                              {"reason": "Mất dấu ngay sau khi rơi nhanh"}))
+                    self._set(st, "POSSIBLE_FALL", t)
+                    events.append(self._event(tr, "FALL_SUSPECTED", "warning", 0.5, t,
+                                              {"reason": "Mất tracking sau dấu hiệu rơi, cần kiểm tra"}))
                 continue
             if tr.last_t != t:
                 continue
@@ -143,7 +155,12 @@ class FallAnalyzer:
                 st = tr.state["fall"] = self._init_state(tr)
             f = frame_features(tr, st["h_ref"])
             border = self._touches_border(tr.last.box)
-            lying, upright = self._lying(f), self._upright(f)
+            f["lying_score"] = self._lying_score(f)
+            if f["lying_score"] >= 0.7:
+                st["lying_streak"] = st.get("lying_streak", 0) + 1
+            else:
+                st["lying_streak"] = 0
+            lying, upright = st["lying_streak"] >= 3, self._upright(f)
             f["lying"], f["upright"] = lying, upright
             st["feat"].append(f)
             st["last_f"] = f
@@ -159,12 +176,14 @@ class FallAnalyzer:
                     self._set(st, "DESCENDING", t)
                 elif lying and not border:
                     self._set(st, "LYING_SLOW", t)
-            elif ph == "DESCENDING":
+            elif ph in ("DESCENDING", "POSSIBLE_FALL"):
                 _, v = self._descent(st, f)
                 st["v_peak"] = max(st.get("v_peak", 0.0), v)
                 if lying:
                     st["t_desc"] = st["t_phase"]
                     self._set(st, "LYING", t)
+                elif ph == "POSSIBLE_FALL" and upright:
+                    self._set(st, "NORMAL", t)
                 elif t - st["t_phase"] > c.confirm_window:
                     self._set(st, "NORMAL", t)
             elif ph == "LYING":
@@ -227,10 +246,21 @@ def inherit_fall_state(tm: TrackManager, new_tr: Track) -> None:
       (DESCENDING tính từ lúc track cũ mất dấu)."""
     o = new_tr.last
     size = max(o.box[3] - o.box[1], o.box[2] - o.box[0])
-    old = tm.find_lost_person_near(o.foot_img, o.t, radius_px=max(80.0, 1.2 * size))
-    if old is None:
-        old = tm.find_lost_person_near(o.foot_img, o.t, radius_px=max(80.0, 1.2 * size),
-                                       max_age=2.0, allow_normal=True)
+    radius = max(80.0, 1.2 * size)
+    candidates = tm.lost_person_candidates(o.foot_img, o.t, radius_px=radius)
+    if candidates:
+        old = candidates[0]
+        if len(candidates) > 1:
+            d0 = np.linalg.norm(old.last.foot_img - o.foot_img)
+            d1 = np.linalg.norm(candidates[1].last.foot_img - o.foot_img)
+            if d1 - d0 < max(20.0, 0.2 * radius):
+                old = None
+        if old is None:
+            return
+    else:
+        candidates = tm.lost_person_candidates(o.foot_img, o.t, radius_px=radius,
+                                                max_age=2.0, allow_normal=True)
+        old = candidates[0] if len(candidates) == 1 else None
         if old is None:
             return
         st = old.state.get("fall")

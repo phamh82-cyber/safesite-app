@@ -9,9 +9,9 @@ const api = async (url, opt = {}) => {
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
 const LABELS = {
-  FALL: "Té ngã", FALL_IMMOBILE: "Bất động sau ngã", PERSON_DOWN: "Người nằm bất động",
-  NEAR_MISS: "Nguy cơ va chạm người – xe", PERSON_VEHICLE_COLLISION: "Va chạm người – xe",
-  VEHICLE_COLLISION: "Va chạm xe – xe", FALL_FROM_HEIGHT: "Ngã từ trên cao", OBJECT_FALL: "Vật rơi",
+  FALL: "Té ngã", FALL_SUSPECTED: "Nghi vấn té ngã", FALL_IMMOBILE: "Bất động sau ngã", PERSON_DOWN: "Người nằm bất động",
+  NEAR_MISS: "Nguy cơ va chạm người – xe", POSSIBLE_CONTACT: "Có thể đã tiếp xúc", PERSON_VEHICLE_COLLISION: "Va chạm người – xe",
+  VEHICLE_COLLISION: "Va chạm xe – xe", FALL_FROM_HEIGHT: "Rơi từ trên cao", OBJECT_FALL: "Rơi từ trên cao",
   STRUCK_BY: "Bị vật rơi đập trúng", FIRE_SMOKE: "Cháy / khói",
 };
 const SEV = { critical: "Nghiêm trọng", warning: "Cảnh báo" };
@@ -20,6 +20,9 @@ const CAM_STATUS = { running: "Đang chạy", starting: "Đang khởi động", 
 const GROUND = { homography: "Đã hiệu chỉnh", "auto-perspective": "Tự ước lượng (phối cảnh)", "auto-scale": "Tự ước lượng (tỉ lệ)" };
 const DETAIL_LABELS = {
   torso_angle: "Góc thân (°)", fall_speed: "Tốc độ rơi (H/s)", height_ratio: "Tỉ lệ chiều cao", reason: "Lý do",
+  risk_detection: "Risk Detection", interaction: "Tương tác",
+  contact_detection: "Contact Detection", impact_analysis: "Impact Analysis",
+  event_decision: "Event Decision", classification: "Phân loại sự kiện",
   distance_m: "Khoảng cách (m)", ttc_s: "Thời gian tới va chạm (s)", vehicle_speed_ms: "Tốc độ xe (m/s)",
   closing_speed_ms: "Tốc độ tiến lại gần (m/s)", recovered_after_s: "Đứng dậy sau (s)", related: "Sự kiện liên quan",
   drop_h: "Độ rơi (× chiều cao người)", est_drop_m: "Độ cao rơi ước tính (m)", kind: "Loại", source: "Nguồn phát hiện",
@@ -85,7 +88,7 @@ function renderTiles() {
     $("b", t).textContent = c.name;
     const st = $(".st", t); st.textContent = CAM_STATUS[rt.status] || rt.status; st.className = "chip st " + (rt.status || "");
     $(".meta", t).innerHTML = rt.status === "running"
-      ? `<span>${rt.fps} FPS</span><span>👷 ${rt.persons ?? 0}</span><span>🚚 ${rt.vehicles ?? 0}</span><span title="${GROUND[rt.ground?.mode] || ""}">${rt.ground?.mode === "homography" ? "📐 đã hiệu chỉnh" : "📐 tự động"}</span>${rt.shaking ? `<span title="Camera đang rung mạnh: phân tích vật rơi/cháy tạm dừng">📳 rung</span>` : ""}${rt.restarts ? `<span title="Số lần luồng tự khởi động lại sau lỗi">↻ ${rt.restarts}</span>` : ""}`
+      ? `<span>${rt.fps} FPS</span><span title="${esc(rt.device_warning || rt.device || "")}">${rt.device?.startsWith("cuda") ? "⚡ GPU" : rt.device ? "CPU" : "Thiết bị"}${rt.device_warning ? " ⚠️" : ""}</span><span>👷 ${rt.persons ?? 0}</span><span>🚚 ${rt.vehicles ?? 0}</span><span title="${GROUND[rt.ground?.mode] || ""}">${rt.ground?.mode === "homography" ? "📐 đã hiệu chỉnh" : "📐 tự động"}</span>${rt.shaking ? `<span title="Camera đang rung mạnh: phân tích vật rơi/cháy tạm dừng">📳 rung</span>` : ""}${rt.restarts ? `<span title="Số lần luồng tự khởi động lại sau lỗi">↻ ${rt.restarts}</span>` : ""}`
       : `<span>${esc(rt.error || "")}</span>`;
     $(".bar i", t).style.width = c.source_type === "file" ? (100 * (rt.progress || 0)).toFixed(1) + "%" : "0";
     const msg = $(".msg", t), live = ["running", "starting", "reconnecting"].includes(rt.status);
@@ -123,7 +126,11 @@ function onEvent(e) {
 }
 function onEventUpdate(e) {
   const i = state.feed.findIndex((x) => x.id === e.id);
-  if (i >= 0) { state.feed[i] = e; renderFeed(); }
+  if (i >= 0) {
+    if (e.status === "new") state.feed[i] = e;
+    else state.feed.splice(i, 1);
+    renderFeed();
+  }
   if (state.current?.id === e.id) fillEvent(e);
 }
 function updateBadge() { const b = $("#badge-new"); b.textContent = state.unseen || ""; b.dataset.n = state.unseen; }
@@ -357,7 +364,9 @@ const SETTING_META = {
     vv_min_closing: ["Tốc độ tiến lại gần tối thiểu (m/s)"], vv_speed_drop: ["Tỉ lệ giảm tốc sau va chạm"], vv_heading_change: ["Đổi hướng đột ngột (°)"],
     cooldown: ["Không báo lặp trong (s)"] }],
   pipeline: ["Xử lý video", {
-    process_fps: ["Khung hình phân tích / giây"], imgsz: ["Kích thước ảnh vào mô hình"], person_conf: ["Ngưỡng tin cậy người"],
+    process_fps: ["Khung hình phân tích / giây"], imgsz: ["Kích thước ảnh vào mô hình"],
+    device: ["Thiết bị suy luận", "auto: tự chọn CUDA; cuda: bắt buộc GPU; cpu: ép dùng CPU"],
+    person_conf: ["Ngưỡng tin cậy người"],
     vehicle_conf: ["Ngưỡng tin cậy xe"], pose_model: ["Mô hình pose", "áp dụng khi chạy lại camera"], det_model: ["Mô hình phát hiện xe"],
     focal_ratio: ["Tiêu cự / chiều rộng ảnh", "dùng khi tự ước lượng"], clip_pre: ["Ghi trước sự kiện (s)"], clip_post: ["Ghi sau sự kiện (s)"],
     show_bev: ["Hiện bản đồ mặt nền"], realtime_files: ["Phát file với tốc độ thật"],
@@ -412,6 +421,6 @@ $("#btn-save-settings").onclick = async () => {
 // ------------------------------------------------------------------ khởi động
 (async () => {
   state.cams = await api("/api/cameras"); renderTiles();
-  state.feed = (await api("/api/events?limit=30")).items; renderFeed();
+  state.feed = (await api("/api/events?status=new&limit=50")).items; renderFeed();
   connect();
 })();

@@ -124,6 +124,6 @@ class HeightFallAnalyzer:
         return {"key": f"FALL_FROM_HEIGHT:{tr.id}:{t:.2f}", "type": "FALL_FROM_HEIGHT",
                 "severity": "critical", "confidence": round(conf, 2), "t": t,
                 "track_ids": [tr.id], "boxes": [tr.last.box.tolist()],
-                "details": {"reason": reason, "drop_h": round(drop, 2),
+                "details": {"source": "person", "reason": reason, "drop_h": round(drop, 2),
                             "est_drop_m": round(drop * PERSON_H_M, 1),
                             "fall_speed": round(float(st["peak"]), 2)}}

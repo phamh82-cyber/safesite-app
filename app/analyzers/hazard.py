@@ -50,6 +50,31 @@ class HazardAnalyzer:
         self._n = 0
         self._k3 = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
 
+    @staticmethod
+    def _inside_fraction(box, container) -> float:
+        iw = max(0.0, min(box[2], container[2]) - max(box[0], container[0]))
+        ih = max(0.0, min(box[3], container[3]) - max(box[1], container[1]))
+        area = max((box[2] - box[0]) * (box[3] - box[1]), 1e-6)
+        return iw * ih / area
+
+    def _is_person_color_false_positive(self, kind: str, box, tm: TrackManager) -> bool:
+        """Bỏ fire box phủ lên người; áo cam thường bị model nhận là lửa."""
+        if kind != "fire":
+            return False
+        x1, y1, x2, y2 = map(float, box)
+        cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
+        box_h = max(y2 - y1, 1.0)
+        for tr in tm.persons():
+            if tr.lost:
+                continue
+            px1, py1, px2, py2 = tr.last.box
+            person_h = max(float(py2 - py1), 1.0)
+            center_inside = px1 <= cx <= px2 and py1 <= cy <= py2
+            if center_inside and self._inside_fraction(box, tr.last.box) >= 0.5 \
+                    and box_h >= 0.25 * person_h:
+                return True
+        return False
+
     # ------------------------------------------------------------------
     def step(self, tm: TrackManager, t: float, frame: Optional[np.ndarray], hazards: Optional[list],
              shaking: bool = False) -> List[dict]:
@@ -57,7 +82,10 @@ class HazardAnalyzer:
         if not c.enabled:
             return []
         if hazards is not None:                           # mô hình vừa chạy ở khung này
-            self.last_boxes = [(k, float(cf), np.asarray(b, float)) for k, cf, b in hazards]
+            self.last_boxes = [
+                (k, float(cf), np.asarray(b, float)) for k, cf, b in hazards
+                if not self._is_person_color_false_positive(k, b, tm)
+            ]
             self._boxes_t = t
             for kind, conf, box in self.last_boxes:
                 if kind in self.obs:

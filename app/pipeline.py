@@ -21,6 +21,26 @@ log = logging.getLogger("safesite")
 TRACKER_YAML = DATA_DIR / "bytetrack_safety.yaml"
 
 
+def resolve_inference_device(requested: str) -> tuple[str, str]:
+    """Resolve auto/cuda/cpu and return an explicit device plus warning text."""
+    try:
+        import torch
+        cuda_available = torch.cuda.is_available()
+        cuda_name = torch.cuda.get_device_name(0) if cuda_available else ""
+    except Exception:
+        cuda_available, cuda_name = False, ""
+
+    if requested == "cpu":
+        return "cpu", ""
+    if requested == "cuda" and not cuda_available:
+        return "cpu", "CUDA được yêu cầu nhưng PyTorch không thấy GPU; đang dùng CPU"
+    if cuda_available:
+        return "cuda:0", cuda_name
+    if requested == "cuda":
+        return "cpu", "CUDA không khả dụng; đang dùng CPU"
+    return "cpu", "Không thấy CUDA; đang dùng CPU"
+
+
 def ensure_tracker_cfg(process_fps: float) -> str:
     # track_buffer tính theo khung hình đã phân tích: giữ track mất dấu ~3 giây
     TRACKER_YAML.write_text(
@@ -47,6 +67,12 @@ class Detector:
     def __init__(self, s: Settings):
         from ultralytics import YOLO   # import muộn để kiểm thử logic không cần torch
         self.s = s
+        self.requested_device = s.pipeline.device
+        self.device, self.device_warning = resolve_inference_device(s.pipeline.device)
+        self.half = self.device.startswith("cuda")
+        log.info("YOLO inference: device=%s, half_precision=%s", self.device, self.half)
+        if self.device_warning and not self.half:
+            log.warning("%s", self.device_warning)
         self.pose = YOLO(s.pipeline.pose_model)
         self.det = YOLO(s.pipeline.det_model)
         self.tracker = ensure_tracker_cfg(s.pipeline.process_fps)
@@ -70,7 +96,8 @@ class Detector:
     def detect_fire(self, frame: np.ndarray) -> list:
         """[(kind, conf, box_xyxy)] của khung này."""
         h, p = self.s.hazard, self.s.pipeline
-        r = self.fire.predict(frame, conf=h.conf, imgsz=p.imgsz, verbose=False)[0]
+        r = self.fire.predict(frame, conf=h.conf, imgsz=p.imgsz, verbose=False,
+                               device=self.device, half=self.half)[0]
         out: list = []
         if r.boxes is None or len(r.boxes) == 0:
             return out
@@ -87,7 +114,7 @@ class Detector:
         p = self.s.pipeline
         out: List[Detection] = []
         r = self.pose.track(frame, persist=True, tracker=self.tracker, conf=p.person_conf,
-                            imgsz=p.imgsz, verbose=False)[0]
+                            imgsz=p.imgsz, verbose=False, device=self.device, half=self.half)[0]
         if r.boxes is not None and r.boxes.id is not None:
             boxes = r.boxes.xyxy.cpu().numpy()
             ids = r.boxes.id.cpu().numpy().astype(int)
@@ -97,7 +124,8 @@ class Detector:
                 out.append(Detection(int(ids[i]), "person", "person", boxes[i], float(confs[i]),
                                      kp[i] if kp is not None else None))
         r = self.det.track(frame, persist=True, tracker=self.tracker, conf=p.vehicle_conf,
-                           imgsz=p.imgsz, classes=list(VEHICLE_CLASSES), verbose=False)[0]
+                           imgsz=p.imgsz, classes=list(VEHICLE_CLASSES), verbose=False,
+                           device=self.device, half=self.half)[0]
         if r.boxes is not None and r.boxes.id is not None:
             boxes = r.boxes.xyxy.cpu().numpy()
             ids = r.boxes.id.cpu().numpy().astype(int)
@@ -200,6 +228,8 @@ class CameraWorker(threading.Thread):
         self.fps = 0.0
         self.progress = 0.0
         self.engine: Optional[Engine] = None
+        self.inference_device = ""
+        self.inference_warning = ""
         self.counts = {"persons": 0, "vehicles": 0}
         self.restarts = 0
 
@@ -208,6 +238,9 @@ class CameraWorker(threading.Thread):
         d = {"status": self.status, "error": self.error, "fps": round(self.fps, 1),
              "progress": round(self.progress, 3), **self.counts}
         d["restarts"] = self.restarts
+        d["device"] = self.inference_device
+        if self.inference_warning:
+            d["device_warning"] = self.inference_warning
         eng = self.engine
         if eng:
             d["ground"] = eng.mapper.info()
@@ -254,6 +287,7 @@ class CameraWorker(threading.Thread):
         if not cap.isOpened():
             cap.release()
             self.status, self.error = "error", f"Không mở được nguồn video: {src}"
+            log.error("Camera %s không mở được nguồn video: %s", self.cam.get("name"), src)
             return
         self.engine = None
         self.error = ""
@@ -270,6 +304,8 @@ class CameraWorker(threading.Thread):
             src_fps = 25.0
         n_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
         detector = Detector(self.s)
+        self.inference_device = getattr(detector, "device", "")
+        self.inference_warning = getattr(detector, "device_warning", "")
         self.status = "running"
         idx, wall0, last_t, t_hist = 0, time.monotonic(), -1e9, []
         seq, last_frame = 0, time.monotonic()

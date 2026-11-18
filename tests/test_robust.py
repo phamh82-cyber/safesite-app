@@ -125,7 +125,7 @@ def test_clip_flush_writes_pending_when_stream_ends(tmp_path):
     done = []
     for i in range(20):
         cr.push(i * 0.1, f)
-    cr.request(1.9, tmp_path / "c.webm", done.append)    # cần thêm 5 s nhưng luồng dừng ngay
+    cr.request(1.9, tmp_path / "c.mp4", done.append)    # cần thêm 5 s nhưng luồng dừng ngay
     cr.flush()
     for _ in range(100):
         if done:

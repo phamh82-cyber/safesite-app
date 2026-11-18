@@ -39,6 +39,40 @@ def test_smoke_is_warning_and_model_source():
     assert ev[0]["details"]["source"] == "model"
 
 
+def test_model_ignores_fire_box_on_orange_clothed_person():
+    eng = make_engine()
+    eng.hazard.model_active = True
+    rng = np.random.default_rng(4)
+
+    def dets(_):
+        k = posture_points(STAND, 500, 520, 300, 0, 0.004, rng)
+        return [person_det(1, k, 300)]
+
+    person_box = np.array([440.0, 220.0, 560.0, 520.0])
+    ev = []
+    for i in range(5):
+        ev += [e for e in eng.process(i * 0.3, dets(i), None, [("fire", 0.9, person_box)])
+               if "type" in e]
+    assert not ev
+
+
+def test_model_keeps_fire_box_outside_person():
+    eng = make_engine()
+    eng.hazard.model_active = True
+    rng = np.random.default_rng(5)
+
+    def dets(_):
+        k = posture_points(STAND, 500, 520, 300, 0, 0.004, rng)
+        return [person_det(1, k, 300)]
+
+    fire_box = np.array([800.0, 250.0, 920.0, 430.0])
+    ev = []
+    for i in range(5):
+        ev += [e for e in eng.process(i * 0.3, dets(i), None, [("fire", 0.9, fire_box)])
+               if "type" in e]
+    assert types(ev) == ["FIRE_SMOKE"]
+
+
 def test_cooldown_prevents_repeated_alerts():
     ev = feed(make_engine(), [[("fire", 0.6, BOX)] for _ in range(40)])      # 12 s liên tục
     assert types(ev) == ["FIRE_SMOKE"], types(ev)                              # cooldown 30 s

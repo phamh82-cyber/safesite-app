@@ -16,6 +16,12 @@ pip install -r requirements.txt
 Máy chỉ có CPU, cài PyTorch bản CPU trước để nhẹ hơn nhiều:
 `pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu`
 
+Máy có GPU NVIDIA, cài bản CUDA tương ứng (ví dụ CUDA 12.4):
+`pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124`
+
+Sau đó đặt **Cài đặt → Xử lý video → Thiết bị suy luận = auto** (hoặc `cuda` để bắt buộc).
+Ứng dụng có thể báo trực tiếp khi bật GPU thành công hay đang chạy lại bằng CPU.
+
 Lần chạy đầu, Ultralytics tự tải `yolo11n-pose.pt` và `yolo11n.pt` (~6 MB mỗi file).
 
 ## 2. Chạy dashboard
@@ -81,9 +87,8 @@ File video vẫn đọc tuần tự (không bỏ khung) để kết quả đánh
 | `NEAR_MISS` | Cảnh báo | Xe đang chạy cách người < 2 m, hoặc TTC < 2 s |
 | `PERSON_VEHICLE_COLLISION` | Nghiêm trọng | Tiếp xúc (< 0,4 m trên nền + bbox giao nhau) **và** trong 2 s người ngã / bị đẩy / mất dấu; hoặc FALL ≤ 3 s sau khi ở sát xe đang chạy |
 | `VEHICLE_COLLISION` | Nghiêm trọng | Footprint hai xe chạm nhau, trước đó tiến lại gần > 1 m/s, sau đó một xe giảm tốc > 50% hoặc đổi hướng > 30° |
-| `FALL_FROM_HEIGHT` | Nghiêm trọng | Hông rơi ≥ 0,7 chiều cao người, tốc độ ≥ 2 H/s, đang tăng tốc, bbox không to lên (loại chạy lại gần camera) → sau đó người nằm, hoặc mất dấu (kể cả rơi ra khỏi khung). Người hạ cánh đứng và đi tiếp thì không báo. Kèm độ cao rơi ước tính (tham khảo, chuẩn 1,7 m) |
-| `OBJECT_FALL` | Cảnh báo | Vệt chuyển động (trừ nền MOG2 trên ảnh đã bù rung) đi xuống ≥ 12% chiều cao khung, chủ yếu theo phương đứng, đang tăng tốc, tốc độ cuối ≥ 0,25 khung/s, không phải người/xe |
-| `STRUCK_BY` | Nghiêm trọng | Vật rơi (như trên) có tâm lọt vào bbox người (mở rộng 15%) **và** trong 2 s người ngã hoặc mất dấu. Vật trúng mà người vẫn đứng ⇒ chỉ có `OBJECT_FALL` |
+| `FALL_FROM_HEIGHT` | Nghiêm trọng | Người hoặc vật rơi nhanh từ trên cao. `details.source` cho biết `person` hay `object`; vật rơi dùng vệt chuyển động MOG2, người dùng pose/tracking |
+| `STRUCK_BY` | Nghiêm trọng | Vật rơi có tâm lọt vào bbox người (mở rộng 15%) **và** trong 2 s người ngã hoặc mất dấu |
 | `FIRE_SMOKE` | Nghiêm trọng (lửa) / Cảnh báo (khói) | ≥ 3 lần phát hiện cùng vị trí trong 3 s. Nguồn: mô hình YOLO fine-tune (mục 8) hoặc, nếu chưa có, bộ lọc màu lửa + yêu cầu vùng màu nhấp nháy (chỉ nhận ra lửa, dễ báo nhầm hơn) |
 
 **Bù rung camera** (`app/ego.py`): mỗi khung ước lượng dịch chuyển toàn cảnh bằng optical flow trên nền (bỏ vùng người/xe). Tọa độ trên nền và ảnh cho phân tích vật rơi được ổn định theo đó; khi rung mạnh (> 0,6% chiều rộng ảnh/khung) thì tạm dừng phân tích vật rơi và bộ lọc màu lửa. Tắt/bật ở *Cài đặt → Xử lý video → Bù rung camera*.
@@ -138,7 +143,7 @@ app/
   engine.py        lõi phân tích 1 camera (không phụ thuộc mô hình → test được)
   pipeline.py      đọc video (LiveReader cho camera trực tiếp), YOLO + ByteTrack, luồng xử lý mỗi camera
   annotate.py      vẽ khung xương, bbox, khoảng cách, bản đồ mặt nền
-  events.py        SQLite, ảnh chụp, clip .webm, WebSocket hub
+  events.py        SQLite, ảnh chụp, clip .mp4, WebSocket hub
   main.py          FastAPI: REST, WebSocket, MJPEG
 static/            giao diện (HTML/CSS/JS thuần, không cần build)
 tools/             evaluate.py, run_video.py

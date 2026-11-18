@@ -25,10 +25,22 @@ for _d in (DATA_DIR, SNAP_DIR, CLIP_DIR, UPLOAD_DIR):
 # Lớp COCO được coi là phương tiện. COCO không có xe nâng / máy xúc:
 # muốn nhận diện các lớp đó cần fine-tune (xem README).
 VEHICLE_CLASSES = {1: "bicycle", 2: "car", 3: "motorcycle", 5: "bus", 7: "truck"}
+# VEHICLE_CLASSES = {
+#     0: "excavator", 
+#     1: "mobile_crane", 
+#     2: "dump_truck", 
+#     3: "concrete_mixer"
+# }
 # Chiều cao thật trung bình (m) dùng cho tự hiệu chỉnh tỉ lệ khi chưa có homography
 CLASS_HEIGHT_M = {"person": 1.70, "bicycle": 1.10, "car": 1.50, "motorcycle": 1.20,
                   "bus": 3.20, "truck": 3.00}
-
+# CLASS_HEIGHT_M = {
+#     "person": 1.70, 
+#     "excavator": 3.00, 
+#     "mobile_crane": 4.00, 
+#     "dump_truck": 3.20, 
+#     "concrete_mixer": 3.80
+# }
 
 @dataclass
 class FallSettings:
@@ -67,6 +79,7 @@ class CollisionSettings:
 class PipelineSettings:
     process_fps: float = 10.0         # số khung hình phân tích mỗi giây
     imgsz: int = 640
+    device: str = "auto"              # auto | cuda | cpu
     person_conf: float = 0.35
     vehicle_conf: float = 0.35
     pose_model: str = "yolo11n-pose.pt"
@@ -75,7 +88,7 @@ class PipelineSettings:
     clip_pre: float = 3.0             # giây video trước sự kiện
     clip_post: float = 3.0            # giây sau sự kiện
     show_bev: bool = True             # bản đồ nhìn từ trên xuống ở góc khung hình
-    realtime_files: bool = True       # phát file video với tốc độ thật
+    realtime_files: bool = False      # phát file nhanh nhất theo tốc độ xử lý
     stabilize: bool = True            # bù rung camera (quan trọng với điện thoại cầm/kẹp)
     shake_level: float = 0.006        # rung > 0,6% chiều rộng ảnh/khung ⇒ coi là đang rung mạnh
 
@@ -165,6 +178,8 @@ def _coerce(section: str, key: str, cur, v):
         if not isinstance(v, str) or any(c in v for c in "\r\n\x00"):
             raise ValueError("phải là chuỗi một dòng")
         v = v.strip()
+        if key == "device" and v not in {"auto", "cuda", "cpu"}:
+            raise ValueError("phải là auto, cuda hoặc cpu")
         if key in MODEL_FIELDS and v and not v.lower().endswith(".pt"):
             raise ValueError("phải là file .pt")
         if key in {"pose_model", "det_model"} and not v:

@@ -116,7 +116,12 @@ class TrackManager:
 
     def find_lost_person_near(self, foot_img: np.ndarray, t: float, radius_px: float,
                               max_age: float = 3.0, allow_normal: bool = False) -> Optional[Track]:
-        best, best_d = None, radius_px
+        candidates = self.lost_person_candidates(foot_img, t, radius_px, max_age, allow_normal)
+        return candidates[0] if candidates else None
+
+    def lost_person_candidates(self, foot_img: np.ndarray, t: float, radius_px: float,
+                              max_age: float = 3.0, allow_normal: bool = False) -> List[Track]:
+        candidates = []
         for tr in self.tracks.values():
             if tr.kind != "person" or not tr.lost or t - tr.lost_since > max_age:
                 continue
@@ -126,9 +131,10 @@ class TrackManager:
             if allow_normal and fs.get("phase") != "NORMAL":
                 continue
             d = float(np.linalg.norm(tr.last.foot_img - foot_img))
-            if d < best_d:
-                best, best_d = tr, d
-        return best
+            if d < radius_px:
+                candidates.append((d, t - tr.lost_since, tr))
+        candidates.sort(key=lambda item: (item[0], item[1]))
+        return [tr for _, _, tr in candidates]
 
     def persons(self) -> List[Track]:
         return [t for t in self.tracks.values() if t.kind == "person"]

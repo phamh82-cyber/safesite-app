@@ -65,6 +65,27 @@ def test_same_source_does_not_restart(client):
     assert client.calls == []
 
 
+def test_duplicate_camera_names_are_rejected_case_insensitively(client):
+    add_phone(client)
+    r = client.post("/api/cameras", json={"name": " điện THOẠI ", "source_type": "rtsp",
+                                          "source": "http://10.188.157.136:8080/video"})
+    assert r.status_code == 400
+    assert "Tên camera đã tồn tại" in r.json()["detail"]
+
+
+def test_rename_to_existing_camera_name_is_rejected(client):
+    add_phone(client)
+    second = client.post("/api/cameras", json={
+        "name": "Cổng kho A", "source_type": "rtsp", "source": "http://10.188.157.137:8080/video"
+    }).json()["id"]
+    client.calls.clear()
+    r = client.put(f"/api/cameras/{second}", json={"name": " ĐIỆN THOẠI "})
+    assert r.status_code == 400
+    cameras = {c["id"]: c for c in client.get("/api/cameras").json()}
+    assert cameras[second]["name"] == "Cổng kho A"
+    assert client.calls == []
+
+
 def test_switch_to_webcam(client):
     cid = add_phone(client)
     r = client.put(f"/api/cameras/{cid}", json={"source_type": "webcam", "source": "0"})

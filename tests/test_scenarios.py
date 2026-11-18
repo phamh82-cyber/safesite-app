@@ -94,7 +94,15 @@ def test_fall_and_recover_no_escalation():
 def test_lost_after_fast_descent():
     frames = person_seq([STANDING, (0.5, lambda s: (STAND, 85 * s))]) + [[] for _ in range(25)]
     t = types(run(make_engine(), frames))
-    assert t == ["FALL"], t
+    assert t == ["FALL_SUSPECTED"], t
+
+
+def test_suspected_fall_is_cancelled_when_person_returns_upright():
+    a = person_seq([STANDING, (0.5, lambda s: (STAND, 85 * s))], tid=1)
+    gap = [[] for _ in range(18)]
+    b = person_seq([(2.0, lambda s: (STAND, 0))], tid=7)
+    t = types(run(make_engine(), a + gap + b))
+    assert t == ["FALL_SUSPECTED"], t
 
 
 def test_id_switch_keeps_fall_state():
@@ -157,8 +165,15 @@ def test_vehicle_hits_person():
             j = i - i_contact
             k = posture_points(STAND, 640 + 4 * min(j, 8), 600, 300, min(90, 12 * j), 0.004, rng)
         frames.append([person_det(1, k, 300), vehicle_det(1, cx, 605, 200, 120)])
-    t = types(run(make_engine(True), frames))
+    evs = run(make_engine(True), frames)
+    t = types(evs)
     assert "PERSON_VEHICLE_COLLISION" in t, t
+    assert "POSSIBLE_CONTACT" in t, t
+    pv = [e for e in evs if e["type"] == "PERSON_VEHICLE_COLLISION"]
+    assert pv and "risk_detection" in pv[0]["details"]
+    assert "contact_detection" in pv[0]["details"]
+    assert "impact_analysis" in pv[0]["details"]
+    assert pv[0]["details"]["event_decision"] == "COLLISION"
 
 
 def test_person_beside_parked_truck_no_alert():
@@ -179,6 +194,7 @@ def test_vehicle_vehicle_collision():
         frames.append([vehicle_det(1, xa, 400, 200, 120), vehicle_det(2, xb, 400, 200, 120)])
     t = types(run(make_engine(True), frames))
     assert t.count("VEHICLE_COLLISION") == 1, t
+    assert "POSSIBLE_CONTACT" in t, t
 
 
 def test_parallel_vehicles_no_collision():

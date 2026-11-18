@@ -25,10 +25,25 @@ cameras: dict[str, dict] = {}
 workers: dict[str, CameraWorker] = {}
 
 
+def _asyncio_exception_handler(loop, context: dict) -> None:
+    """Bỏ qua client ngắt socket đột ngột; vẫn ghi các lỗi event loop khác."""
+    exc = context.get("exception")
+    if isinstance(exc, ConnectionResetError) and getattr(exc, "winerror", None) == 10054:
+        return
+    loop.default_exception_handler(context)
+
+
 # ----------------------------------------------------------------- lưu cấu hình camera
 def save_cameras() -> None:
     CAMERAS_PATH.write_text(json.dumps(list(cameras.values()), indent=2, ensure_ascii=False),
                             encoding="utf-8")
+
+
+def ensure_unique_camera_name(name: str, exclude_id: Optional[str] = None) -> None:
+    normalized = name.casefold()
+    if any(c["id"] != exclude_id and c.get("name", "").casefold() == normalized
+           for c in cameras.values()):
+        raise HTTPException(400, "Tên camera đã tồn tại, hãy chọn tên khác")
 
 
 def load_cameras() -> None:
@@ -110,6 +125,7 @@ def restart_worker(cid: str) -> None:
 
 @app.on_event("startup")
 async def _startup() -> None:
+    asyncio.get_running_loop().set_exception_handler(_asyncio_exception_handler)
     load_settings()
     load_cameras()
     hub.attach_loop(asyncio.get_running_loop())
@@ -146,6 +162,7 @@ def add_camera(body: CameraIn):
     data["name"], data["source"] = data["name"].strip(), data["source"].strip()
     if not data["name"] or not data["source"]:
         raise HTTPException(400, "Tên và địa chỉ nguồn không được để trống")
+    ensure_unique_camera_name(data["name"])
     validate_source(data["source_type"], data["source"])
     cid = uuid.uuid4().hex[:8]
     cameras[cid] = {"id": cid, **data, "calibration": None}
@@ -206,6 +223,8 @@ def cam_update(cid: str, body: CameraPatch):
             data[k] = data[k].strip()
             if not data[k]:
                 raise HTTPException(400, "Tên và địa chỉ nguồn không được để trống")
+    if "name" in data:
+        ensure_unique_camera_name(data["name"], cid)
     if "source" in data:
         data["source"] = restore_password(data["source"], c["source"])
     stype = data.get("source_type", c["source_type"])

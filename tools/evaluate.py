@@ -2,7 +2,7 @@
 
 File nhãn CSV:   video,type,start,end
     video  – tên file trong thư mục --videos
-    type   – FALL | NEAR_MISS | PERSON_VEHICLE_COLLISION | VEHICLE_COLLISION | ...
+    type   – FALL | NEAR_MISS | POSSIBLE_CONTACT | PERSON_VEHICLE_COLLISION | VEHICLE_COLLISION | ...
     start, end – giây trong video. Video không có sự kiện: ghi một dòng type=NONE.
 
 Quy tắc khớp: một cảnh báo cùng loại nằm trong [start - 1 s, end + 3 s] là TP;

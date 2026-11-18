@@ -54,7 +54,7 @@ def fall_y(i, i0, g=1500.0, y0=0.0):       # vật bắt đầu rơi từ khung 
 def test_falling_object_detected_once():
     n = WARM + 14
     ev = run_video(n, lambda i: [obj_rect(900, fall_y(i, WARM))] if i >= WARM else [])
-    assert types(ev) == ["OBJECT_FALL"], types(ev)
+    assert types(ev) == ["FALL_FROM_HEIGHT"], types(ev)
 
 
 def test_bird_moving_sideways_no_alert():
@@ -109,7 +109,7 @@ def test_object_hits_person_who_falls():
     ev = run_video(n, lambda i: [obj_rect(FX, fall_y(i, WARM))] if WARM <= i <= hit else [],
                    person_dets(hit + 3))
     t = types(ev)
-    assert "OBJECT_FALL" in t and t.count("STRUCK_BY") == 1 and "FALL" in t, t
+    assert "FALL_FROM_HEIGHT" in t and t.count("STRUCK_BY") == 1 and "FALL" in t, t
 
 
 def test_object_falls_beside_person_no_struck():
@@ -126,7 +126,7 @@ def test_hit_without_reaction_is_warning_only():
     ev = run_video(WARM + 40, lambda i: [obj_rect(FX, fall_y(i, WARM))] if WARM <= i <= hit else [],
                    person_dets(None))
     t = types(ev)
-    assert "STRUCK_BY" not in t and "OBJECT_FALL" in t, t
+    assert "STRUCK_BY" not in t and "FALL_FROM_HEIGHT" in t, t
 
 
 def test_person_falling_alone_is_not_an_object():
@@ -138,7 +138,21 @@ def test_person_falling_alone_is_not_an_object():
         d = dets(i)[0]
         return [(*d.box, 30)] if i >= WARM else []
     ev = run_video(WARM + 30, rects, dets)
-    assert "OBJECT_FALL" not in types(ev) and "STRUCK_BY" not in types(ev), types(ev)
+    assert "FALL_FROM_HEIGHT" not in types(ev) and "STRUCK_BY" not in types(ev), types(ev)
+
+
+# def test_large_person_motion_is_not_an_object():
+#     """Vệt chỉ chiếm một phần bbox người khi ngã vẫn không bị coi là vật rơi."""
+#     t0 = WARM + 2
+#     dets = person_dets(t0)
+
+#     def rects(i):
+#         d = dets(i)[0]
+#         x1, y1, x2, y2 = d.box
+#         return [(x1, y1, x2, y1 + 0.45 * (y2 - y1), 30)] if i >= WARM else []
+
+#     ev = run_video(WARM + 30, rects, dets)
+#     assert "OBJECT_FALL" not in types(ev), types(ev)
 
 
 def test_accelerating_but_mostly_sideways_no_alert():

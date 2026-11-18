@@ -1,4 +1,4 @@
-"""Vật rơi (OBJECT_FALL) và người bị vật rơi đập trúng (STRUCK_BY).
+"""Vật rơi từ trên cao (FALL_FROM_HEIGHT) và người bị vật rơi đập trúng (STRUCK_BY).
 
 Quy trình trên ảnh xám thu nhỏ đã ổn định (bù rung camera):
   1. Trừ nền MOG2 → mặt nạ tiền cảnh → các vệt (blob) kích thước vừa phải.
@@ -70,6 +70,20 @@ class FallingObjectAnalyzer:
         iw = max(0.0, min(x2, box[2]) - max(x1, box[0]))
         ih = max(0.0, min(y2, box[3]) - max(y1, box[1]))
         return iw * ih / max(w * h, 1e-6)
+
+    # def _is_person_motion(self, cx, cy, w, h, people) -> bool:
+    #     """Loại vệt lớn do chính người ngã tạo ra, không loại vật nhỏ đang rơi trúng người."""
+    #     blob_area = w * h
+    #     for _, person_box in people:
+    #         px1, py1, px2, py2 = person_box
+    #         person_area = max((px2 - px1) * (py2 - py1), 1.0)
+    #         overlap = self._inside_frac(cx, cy, w, h, person_box)
+    #         center_inside = px1 <= cx <= px2 and py1 <= cy <= py2
+    #         height_ratio = h / max(py2 - py1, 1.0)
+    #         area_ratio = blob_area / person_area
+    #         if overlap >= 0.2 and center_inside and (height_ratio >= 0.3 or area_ratio >= 0.12):
+    #             return True
+    #     return False
 
     def _to_raw(self, box_work, shift) -> list:
         x1, y1, x2, y2 = (np.asarray(box_work, float) / self.s)
@@ -161,6 +175,9 @@ class FallingObjectAnalyzer:
 
         for b in list(self.blobs.values()):
             if b.miss:
+            #     continue
+            # _, cx, cy, bw, bh = b.hist[-1]
+            # if self._is_person_motion(cx, cy, bw, bh, people):
                 continue
             q = self._falling(b, t, c.min_samples)
             if q is None:
@@ -219,9 +236,10 @@ class FallingObjectAnalyzer:
         d = {"speed_fh_s": round(q["v"], 2), "drop_fh": round(q["dy"], 2)}
         if near is not None:
             d["nearest_person_h"] = round(near, 1)
-        return {"key": f"OBJECT_FALL:{b.id}:{t:.2f}", "type": "OBJECT_FALL", "severity": "warning",
+        return {"key": f"FALL_FROM_HEIGHT:object:{b.id}:{t:.2f}", "type": "FALL_FROM_HEIGHT",
+                "severity": "critical",
                 "confidence": round(conf, 2), "t": t, "track_ids": [f"O{b.id}"], "boxes": [box],
-                "details": d}
+                "details": {"source": "object", **d}}
 
     # ------------------------------------------------------------------
     def _check_contact(self, b: _Blob, q: dict, people, t: float) -> None:

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import sqlite3
 import threading
 import time
@@ -16,15 +17,19 @@ import numpy as np
 
 from .config import CLIP_DIR, DB_PATH, SNAP_DIR
 
+log = logging.getLogger("safesite")
+
 EVENT_LABELS = {
     "FALL": "Té ngã",
+    "FALL_SUSPECTED": "Nghi vấn té ngã",
     "FALL_IMMOBILE": "Bất động sau ngã",
     "PERSON_DOWN": "Người nằm bất động",
     "NEAR_MISS": "Nguy cơ va chạm người – xe",
+    "POSSIBLE_CONTACT": "Có thể đã tiếp xúc",
     "PERSON_VEHICLE_COLLISION": "Va chạm người – xe",
     "VEHICLE_COLLISION": "Va chạm xe – xe",
-    "FALL_FROM_HEIGHT": "Ngã từ trên cao",
-    "OBJECT_FALL": "Vật rơi",
+    "FALL_FROM_HEIGHT": "Rơi từ trên cao",
+    "OBJECT_FALL": "Rơi từ trên cao",
     "STRUCK_BY": "Bị vật rơi đập trúng",
     "FIRE_SMOKE": "Cháy / khói",
 }
@@ -137,7 +142,7 @@ class EventStore:
 
 class ClipRecorder:
     """Giữ vòng đệm các khung hình đã vẽ; khi có sự kiện ghi `pre` giây trước và `post`
-    giây sau thành file .webm (VP8 – trình duyệt phát được)."""
+    giây sau thành file .mp4 (MPEG-4 – tương thích OpenCV trên Windows)."""
 
     def __init__(self, pre: float, post: float):
         self.pre, self.post = pre, post
@@ -187,10 +192,10 @@ class ClipRecorder:
         first = cv2.imdecode(frames[0][1], cv2.IMREAD_COLOR)
         h, w = first.shape[:2]
         path: Path = p["path"]
-        wr = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"VP80"), fps, (w, h))
+        wr = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
         if not wr.isOpened():
-            path = path.with_suffix(".mp4")
-            wr = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
+            log.error("Không thể mở bộ mã hóa MP4 để ghi clip: %s", path)
+            return
         for _, jpg in frames:
             wr.write(cv2.imdecode(jpg, cv2.IMREAD_COLOR))
         wr.release()
@@ -244,7 +249,7 @@ class EventHub:
             def done(name: str, eid=eid):
                 self.store.set_clip(eid, name)
                 self.broadcast({"kind": "event_update", "event": self.store.get(eid)})
-            clips.request(ev["t"], CLIP_DIR / f"{cam_id}_{stamp}_{ev['type']}.webm", done)
+            clips.request(ev["t"], CLIP_DIR / f"{cam_id}_{stamp}_{ev['type']}.mp4", done)
         self.broadcast({"kind": "event", "event": self.store.get(eid)})
 
     def recent_for(self, cam_id: str, within: float = 4.0) -> list:

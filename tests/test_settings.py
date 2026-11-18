@@ -37,10 +37,11 @@ def test_invalid_values_rejected_and_nothing_applied(patch):
 
 def test_valid_values_applied_with_coercion():
     s = Settings()
-    assert s.update({"pipeline": {"process_fps": 12, "imgsz": 800.0, "stabilize": False},
+    assert s.update({"pipeline": {"process_fps": 12, "imgsz": 800.0, "device": "cuda", "stabilize": False},
                      "hazard": {"fire_model": " models/fire_smoke_best.pt "},
                      "height_fall": {"min_drop": 1.0}}, strict=True) == []
     assert s.pipeline.process_fps == 12.0 and s.pipeline.imgsz == 800 and s.pipeline.stabilize is False
+    assert s.pipeline.device == "cuda"
     assert s.hazard.fire_model == "models/fire_smoke_best.pt" and s.height_fall.min_drop == 1.0
 
 
@@ -100,8 +101,8 @@ def test_post_accepts_uploaded_file_and_valid_sources(client):
     f = client.tmp / "uploads" / "a.mp4"
     f.write_bytes(b"x")
     assert post(client, source_type="file", source=str(f)).status_code == 200
-    assert post(client, source="http://10.0.0.7:8080/video").status_code == 200
-    assert post(client, source_type="webcam", source="0").status_code == 200
+    assert post(client, name="phone-camera", source="http://10.0.0.7:8080/video").status_code == 200
+    assert post(client, name="webcam", source_type="webcam", source="0").status_code == 200
 
 
 def test_file_outside_upload_dir_rejected_via_put_too(client):
