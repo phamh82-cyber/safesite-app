@@ -152,8 +152,28 @@ def test_pause_resume():
     print("test_pause_resume OK")
 
 
+def test_temporal_smoothing():
+    tmp = Path(tempfile.mkdtemp())
+    vid = tmp / "v_temporal.mp4"
+    make_video(vid, n=50)
+    store = SettingsStore(tmp / "settings.json")
+    store.update_settings({"videomae_threshold": 0.8})
+    store.set_cameras([CameraConfig("ct1", "Cam Temporal", str(vid), "Khu C")])
+    eng = Engine(store)
+    eng.reload_cameras()
+    pipe = eng.pipelines["ct1"]
+
+    assert pipe._confirm_temporal(0.9) is False
+    assert pipe._confirm_temporal(0.9) is True
+    assert pipe._confirm_temporal(0.2) is True
+
+    eng.stop()
+    print("test_temporal_smoothing OK")
+
+
 if __name__ == "__main__":
     test_geometry()
     test_scan_hazard()
     test_pause_resume()
+    test_temporal_smoothing()
     test_pipeline()

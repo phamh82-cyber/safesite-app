@@ -26,7 +26,7 @@ YOLO_POSE_WEIGHTS = MODELS_DIR / "yolo11n-pose.pt"
 YOLO_OBJ_WEIGHTS = MODELS_DIR / "yolo11n.pt"
 
 CLIP_LEN = 16      # số frame đưa vào VideoMAE
-BUFFER_LEN = 32    # ring buffer frame gần nhất
+BUFFER_LEN = 90    # ~3 giây tại 30 FPS
 
 
 @dataclass

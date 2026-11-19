@@ -135,9 +135,22 @@ class MultiTaskVideoMAEPipeline:
         self.predict([dummy])
 
     def _prep(self, frames):
-        arr = np.stack([cv2.cvtColor(cv2.resize(f, (self.image_size, self.image_size),
-                                                interpolation=cv2.INTER_LINEAR), cv2.COLOR_BGR2RGB)
-                        for f in frames]).astype(np.float32) / 255.0
+        prepared = []
+        for frame in frames:
+            h, w = frame.shape[:2]
+            if h == 0 or w == 0:
+                continue
+            scale = self.image_size / min(h, w)
+            resized_w = max(self.image_size, int(round(w * scale)))
+            resized_h = max(self.image_size, int(round(h * scale)))
+            resized = cv2.resize(frame, (resized_w, resized_h), interpolation=cv2.INTER_LINEAR)
+            y0 = (resized_h - self.image_size) // 2
+            x0 = (resized_w - self.image_size) // 2
+            cropped = resized[y0:y0 + self.image_size, x0:x0 + self.image_size]
+            prepared.append(cv2.cvtColor(cropped, cv2.COLOR_BGR2RGB))
+        if len(prepared) != 16:
+            raise ValueError(f"VideoMAE cần 16 frame, nhận được {len(prepared)} frame")
+        arr = np.stack(prepared).astype(np.float32) / 255.0
         arr = (arr - MEAN) / STD
         return arr.transpose(0, 3, 1, 2)   # T,C,H,W
 

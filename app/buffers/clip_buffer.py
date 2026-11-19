@@ -59,6 +59,11 @@ class ClipBuffer:
             items = list(self._buf)
         if not items:
             return [], None
+        # Ưu tiên cửa sổ 3 giây gần nhất để khớp clip train.
+        newest_ts = items[-1][0]
+        recent = [(ts, frame) for ts, frame in items if newest_ts - ts <= 3.0]
+        if recent:
+            items = recent
         idx = np.linspace(0, len(items) - 1, self.clip_len).round().astype(int)
         full = [items[i][1] for i in idx]
         crops = None

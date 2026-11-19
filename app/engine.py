@@ -9,6 +9,7 @@ import os
 import queue
 import threading
 import time
+from collections import deque
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -130,6 +131,7 @@ class CameraPipeline(threading.Thread):
         self.danger_ids: set = set()
         self.last_event_label = ""
         self.last_verify = 0.0
+        self.hazard_history = deque(maxlen=3)
         self.jobs: queue.Queue = queue.Queue(maxsize=1)
         self.verifier = threading.Thread(target=self._verify_loop, daemon=True, name=f"vm-{cam.id}")
 
@@ -224,9 +226,15 @@ class CameraPipeline(threading.Thread):
                 vm = self.engine.videomae
                 res = vm.predict(views)
                 self.last_prob = res["hazard_prob"]
-                self._emit(cand, res, ts, vis)
+                if self._confirm_temporal(res["hazard_prob"]):
+                    self._emit(cand, res, ts, vis)
             except Exception as e:
                 print(f"[{self.cam.id}] VideoMAE lỗi: {type(e).__name__}: {e}")
+
+    def _confirm_temporal(self, probability: float) -> bool:
+        threshold = self.engine.store.settings.videomae_threshold
+        self.hazard_history.append(probability >= threshold)
+        return sum(self.hazard_history) >= 2
 
     def _emit(self, cand, vm_res, ts, vis):
         s = self.engine.store.settings
