@@ -1,0 +1,11 @@
+# PyTorch: cài bản CUDA phù hợp trước (https://pytorch.org/get-started/locally/), ví dụ:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+torch
+torchvision
+ultralytics>=8.3.0      # YOLO11 + BYTETracker
+lapx                    # phụ thuộc của ByteTrack
+transformers>=4.40      # VideoMAE
+opencv-python
+numpy
+fastapi
+uvicorn[standard]       # kèm websockets

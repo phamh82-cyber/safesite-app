@@ -1,0 +1,479 @@
+<!doctype html>
+<html lang="vi" data-bs-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SafeSite Dashboard</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<style>
+  body { background:#10141a; }
+  .tile { position:relative; background:#000; border:2px solid #2a313b; border-radius:6px; overflow:hidden; aspect-ratio:16/9; cursor:pointer; }
+  .tile img { width:100%; height:100%; object-fit:contain; display:block; }
+  .tile.alert { border-color:#ff2d2d; animation:blink 0.8s infinite; }
+  .tile .tag { position:absolute; right:6px; top:6px; z-index:10; }
+  .tile .pause-overlay {
+    position:absolute; inset:0; background:rgba(0,0,0,0.35);
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    opacity:0; transition:all 0.2s ease; z-index:5;
+  }
+  .tile:hover .pause-overlay { opacity:1; }
+  .tile.is-paused .pause-overlay { opacity:1; background:rgba(0,0,0,0.6); }
+  .tile .pause-btn-circle {
+    width:52px; height:52px; border-radius:50%; background:rgba(20,24,30,0.85);
+    border:2px solid rgba(255,255,255,0.7); display:flex; align-items:center;
+    justify-content:center; font-size:24px; color:#fff; box-shadow:0 4px 12px rgba(0,0,0,0.5);
+    transition:transform 0.15s ease, background 0.15s ease;
+  }
+  .tile:hover .pause-btn-circle { transform:scale(1.1); background:rgba(30,40,55,0.95); }
+  .tile .pause-hint {
+    margin-top:8px; font-size:12px; font-weight:500; color:#fff;
+    background:rgba(0,0,0,0.7); padding:3px 10px; border-radius:12px;
+  }
+  @keyframes blink { 50% { box-shadow:0 0 22px 4px #ff2d2d; } }
+  #alertBox { position:fixed; top:64px; right:16px; z-index:2000; width:340px; }
+  .alert-card { background:#7a0b0b; border:2px solid #ff2d2d; border-radius:8px; padding:10px 14px; margin-bottom:8px;
+                animation:blink 0.8s 5; cursor:pointer; }
+  tr.ev { cursor:pointer; }
+  .st-new { color:#ffc107; } .st-confirmed { color:#ff6b6b; } .st-false_alarm { color:#8a97a6; }
+</style>
+</head>
+<body>
+<nav class="navbar navbar-expand bg-body-tertiary border-bottom">
+  <div class="container-fluid">
+    <span class="navbar-brand fw-bold">🦺 SafeSite</span>
+    <ul class="nav nav-pills me-auto" id="tabs">
+      <li class="nav-item"><a class="nav-link active" data-tab="live" href="#">Giám sát trực tiếp</a></li>
+      <li class="nav-item"><a class="nav-link" data-tab="log" href="#">Nhật ký sự cố <span id="newBadge" class="badge text-bg-danger d-none"></span></a></li>
+      <li class="nav-item"><a class="nav-link" data-tab="camera" href="#">Camera</a></li>
+      <li class="nav-item"><a class="nav-link" data-tab="settings" href="#">Cài đặt</a></li>
+    </ul>
+    <span id="sysPill" class="badge text-bg-secondary">đang kết nối…</span>
+  </div>
+</nav>
+<div id="alertBox"></div>
+
+<main class="container-fluid py-3">
+  <!-- 1. LIVE -->
+  <section id="tab-live">
+    <div class="d-flex align-items-center gap-2 mb-3">
+      <span class="text-secondary">Lưới:</span>
+      <div class="btn-group btn-group-sm" id="gridBtns">
+        <button class="btn btn-outline-light active" data-n="1">1×1</button>
+        <button class="btn btn-outline-light" data-n="2">2×2</button>
+        <button class="btn btn-outline-light" data-n="3">3×3</button>
+      </div>
+      <button class="btn btn-sm btn-primary ms-3" onclick="$('#upFile').click()">⬆ Tải video lên</button>
+      <input type="file" id="upFile" accept="video/*,.mkv,.avi" class="d-none">
+      <div class="progress flex-grow-1 d-none" style="max-width:240px;height:18px" id="upBar"><div class="progress-bar" id="upPct">0%</div></div>
+      <span class="ms-3 small text-secondary" id="loadErr"></span>
+      <span class="ms-auto small text-secondary d-none d-md-inline">💡 Bấm vào khung video để tạm dừng / phát tiếp</span>
+    </div>
+    <div id="grid" class="row g-2"></div>
+    <div id="noCam" class="text-secondary d-none">Chưa có camera. Vào tab <b>Camera</b> để thêm RTSP / file video.</div>
+  </section>
+
+  <!-- 2. LOG -->
+  <section id="tab-log" class="d-none">
+    <div class="row g-2 mb-3">
+      <div class="col-auto"><input type="date" id="fDate" class="form-control form-control-sm"></div>
+      <div class="col-auto">
+        <select id="fStatus" class="form-select form-select-sm">
+          <option value="">Tất cả trạng thái</option><option value="new">Chưa xem</option>
+          <option value="confirmed">Đã xác nhận</option><option value="false_alarm">Báo động giả</option>
+        </select>
+      </div>
+      <div class="col-auto"><button id="fAll" class="btn btn-sm btn-outline-secondary">Mọi ngày</button></div>
+      <div class="col-auto"><button id="fReload" class="btn btn-sm btn-primary">Tải lại</button></div>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-hover table-sm align-middle">
+        <thead><tr><th>Bắt đầu</th><th>Kết thúc</th><th>Camera / Khu vực</th><th>Loại sự cố</th>
+          <th>Tin cậy</th><th>Trạng thái</th></tr></thead>
+        <tbody id="logBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 3. CAMERA -->
+  <section id="tab-camera" class="d-none">
+    <div class="card mb-4">
+      <div class="card-header fw-bold">Danh sách Camera</div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover table-sm align-middle mb-0">
+            <thead><tr><th class="ps-3">Tên</th><th>Nguồn</th><th>Khu vực</th><th>Trạng thái</th><th class="text-end pe-3">Hành động</th></tr></thead>
+            <tbody id="camBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header fw-bold">Thêm camera mới</div>
+      <div class="card-body">
+        <div class="row g-2">
+          <div class="col-md-4"><input id="c_name" class="form-control form-control-sm" placeholder="Tên camera"></div>
+          <div class="col-md-8"><input id="c_src" class="form-control form-control-sm" placeholder="rtsp://user:pass@ip:554/stream | video.mp4 | 0"></div>
+          <div class="col-md-6"><input id="c_zone" class="form-control form-control-sm" placeholder="Khu vực công trường"></div>
+          <div class="col-12"><button class="btn btn-sm btn-outline-primary" onclick="$('#upFile').click()">⬆ Hoặc tải video từ máy lên</button></div>
+          <div class="col-md-6 d-flex gap-2">
+            <button class="btn btn-sm btn-outline-info" id="c_test">Kiểm tra</button>
+            <button class="btn btn-sm btn-success" id="c_add">Thêm</button>
+            <span id="c_msg" class="small align-self-center"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4. SETTINGS -->
+  <section id="tab-settings" class="d-none">
+    <div class="row g-4">
+      <div class="col-lg-8 col-xl-6">
+        <h5>Ngưỡng &amp; hiệu chỉnh</h5>
+        <div class="mb-3"><label class="form-label">VideoMAE Hazard Threshold: <b id="v_thr"></b></label>
+          <input type="range" class="form-range" id="s_thr" min="0.3" max="0.8" step="0.01"></div>
+        <div class="mb-3"><label class="form-label">Góc ngã LYING_ANGLE_DEG: <b id="v_ang"></b>°</label>
+          <input type="range" class="form-range" id="s_ang" min="30" max="85" step="1"></div>
+        <div class="mb-3"><label class="form-label">Khoảng cách an toàn người–xe (× chiều cao người): <b id="v_dist"></b></label>
+          <input type="range" class="form-range" id="s_dist" min="0" max="3" step="0.1"></div>
+        <div class="mb-3"><label class="form-label">Cooldown chống spam (giây): <b id="v_cool"></b></label>
+          <input type="range" class="form-range" id="s_cool" min="0" max="60" step="1"></div>
+        <h5 class="mt-4">Bật / tắt module</h5>
+        <div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="s_yolo">
+          <label class="form-check-label" for="s_yolo">YOLO + Tracking <span id="m_yolo" class="small text-secondary"></span></label></div>
+        <div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="s_vm">
+          <label class="form-check-label" for="s_vm">VideoMAE <span id="m_vm" class="small text-secondary"></span></label></div>
+        <div class="form-text">Tắt riêng từng luồng để đo hiệu năng. YOLO tắt ⇒ VideoMAE quét định kỳ toàn khung. VideoMAE tắt ⇒ chỉ cảnh báo theo hình học.</div>
+        <div id="saved" class="small text-success mt-2"></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- Modal sự cố -->
+<div class="modal fade" id="evModal" tabindex="-1"><div class="modal-dialog modal-lg modal-dialog-centered"><div class="modal-content">
+  <div class="modal-header"><h5 class="modal-title" id="mTitle"></h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+  <div class="modal-body">
+    <div id="mMedia"></div>
+    <div class="mt-3 small" id="mInfo"></div>
+  </div>
+  <div class="modal-footer">
+    <a id="mReport" class="btn btn-outline-light btn-sm">Tải báo cáo</a>
+    <a id="mClip" class="btn btn-outline-light btn-sm" download>Tải video</a>
+    <button class="btn btn-sm btn-danger" data-st="confirmed">Xác nhận sự cố</button>
+    <button class="btn btn-sm btn-secondary" data-st="false_alarm">Báo động giả</button>
+  </div>
+</div></div></div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const ST = {new:'Chưa xem', confirmed:'Đã xác nhận', false_alarm:'Báo động giả'};
+const api = async (url, opt) => { const r = await fetch(url, opt); if (!r.ok) throw new Error(await r.text()); return r.json(); };
+const jsonOpt = (m, b) => ({method:m, headers:{'Content-Type':'application/json'}, body:JSON.stringify(b)});
+const fmt = t => new Date(t*1000).toLocaleString('vi-VN');
+let tab = 'live', gridN = 1, cams = [], camStatus = {}, curEvent = null;
+
+/* ---------- tabs ---------- */
+document.querySelectorAll('#tabs a').forEach(a => a.onclick = e => { e.preventDefault(); showTab(a.dataset.tab); });
+function showTab(t) {
+  tab = t;
+  document.querySelectorAll('#tabs a').forEach(a => a.classList.toggle('active', a.dataset.tab === t));
+  ['live','log','camera','settings'].forEach(x => $('#tab-'+x).classList.toggle('d-none', x !== t));
+  if (t === 'live') renderGrid(); else document.querySelectorAll('#grid img').forEach(i => i.removeAttribute('src'));
+  if (t === 'log') loadLog();
+  if (t === 'camera') loadCams();
+  if (t === 'settings') loadSettings();
+}
+
+/* ---------- LIVE ---------- */
+document.querySelectorAll('#gridBtns button').forEach(b => b.onclick = () => {
+  gridN = +b.dataset.n;
+  document.querySelectorAll('#gridBtns button').forEach(x => x.classList.toggle('active', x === b));
+  renderGrid();
+});
+async function renderGrid() {
+  cams = await api('/api/cameras');
+  const list = cams.filter(c => c.enabled).slice(0, gridN * gridN);
+  $('#noCam').classList.toggle('d-none', cams.length > 0);
+  const col = 12 / gridN;
+  $('#grid').innerHTML = list.map(c => {
+    const isP = Boolean(c.status && c.status.paused);
+    return `<div class="col-${col}">
+      <div class="tile ${isP ? 'is-paused' : ''}" id="t-${c.id}" data-id="${c.id}" title="Bấm để tạm dừng / tiếp tục video">
+        <img data-id="${c.id}" alt="">
+        <span class="tag badge ${isP ? 'text-bg-warning' : 'text-bg-success'}" id="b-${c.id}">${isP ? 'ĐÃ DỪNG' : '…'}</span>
+        <button type="button" class="pause-overlay border-0 w-100 h-100" id="po-${c.id}" aria-label="${isP ? 'Phát tiếp' : 'Tạm dừng'} camera ${esc(c.name)}">
+          <div class="pause-btn-circle" id="pi-${c.id}">${isP ? '▶' : '⏸'}</div>
+          <div class="pause-hint" id="ph-${c.id}">${isP ? 'Đã dừng · Bấm để tiếp tục' : 'Bấm để tạm dừng'}</div>
+        </button>
+      </div>
+    </div>`;
+  }).join('');
+  /* Đặt src đúng loại tùy trạng thái pause */
+  document.querySelectorAll('#grid img').forEach(i => {
+    const cam = cams.find(c => c.id === i.dataset.id);
+    const paused = cam && cam.status && cam.status.paused;
+    i.src = paused
+      ? '/snapshot/' + i.dataset.id + '?t=' + Date.now()
+      : '/stream/' + i.dataset.id + '?t=' + Date.now();
+  });
+  document.querySelectorAll('#grid .pause-overlay').forEach(b => {
+    b.onclick = e => {
+      e.preventDefault();
+      e.stopPropagation();
+      togglePause(b.closest('.tile').dataset.id);
+    };
+  });
+}
+
+/* Trạng thái đang chờ phản hồi API (tránh double-click) */
+const pausePending = new Set();
+
+async function togglePause(camId) {
+  if (pausePending.has(camId)) return;        // bỏ qua nếu đang xử lý
+  pausePending.add(camId);
+
+  const t = $('#t-' + camId);
+  const willPause = t ? !t.classList.contains('is-paused') : true;
+
+  /* ---- PAUSE: lấy snapshot ngay trước khi dừng stream ---- */
+  if (willPause) {
+    const img = document.querySelector(`#t-${camId} img`);
+    if (img) img.src = '/snapshot/' + camId + '?t=' + Date.now();
+    updateTilePauseUI(camId, true);
+  }
+
+  try {
+    const res = await api('/api/cameras/' + camId + '/pause', jsonOpt('POST', {paused: willPause}));
+    updateTilePauseUI(camId, res.paused);
+    const img = document.querySelector(`#t-${camId} img`);
+    if (img) {
+      if (res.paused) {
+        /* Giữ nguyên snapshot đã set, không cần đổi */
+      } else {
+        /* RESUME: khôi phục MJPEG stream */
+        img.src = '/stream/' + camId + '?t=' + Date.now();
+      }
+    }
+  } catch (err) {
+    console.error('Lỗi tạm dừng/phát camera:', err);
+    /* Rollback nếu lỗi */
+    updateTilePauseUI(camId, !willPause);
+    const img = document.querySelector(`#t-${camId} img`);
+    if (img) img.src = '/stream/' + camId + '?t=' + Date.now();
+  } finally {
+    pausePending.delete(camId);
+  }
+}
+
+function updateTilePauseUI(camId, isPaused) {
+  const t = $('#t-' + camId), b = $('#b-' + camId), pi = $('#pi-' + camId), ph = $('#ph-' + camId);
+  if (!t) return;
+  t.classList.toggle('is-paused', isPaused);
+  if (pi) pi.textContent = isPaused ? '▶' : '⏸';
+  if (ph) ph.textContent = isPaused ? 'Đã dừng · Bấm để tiếp tục' : 'Bấm để tạm dừng';
+  const pauseButton = $('#po-' + camId);
+  if (pauseButton) {
+    pauseButton.setAttribute('aria-label', isPaused ? 'Phát tiếp camera' : 'Tạm dừng camera');
+  }
+  if (b) {
+    if (isPaused) {
+      b.className = 'tag badge text-bg-warning';
+      b.textContent = 'ĐÃ DỪNG';
+    } else {
+      /* Phục hồi badge bình thường – sẽ cập nhật đúng khi WebSocket gửi status */
+      b.className = 'tag badge text-bg-success';
+      b.textContent = '…';
+    }
+  }
+}
+
+function applyStatus(st) {
+  camStatus = Object.fromEntries(st.cameras.map(c => [c.id, c]));
+  st.cameras.forEach(c => {
+    const t = $('#t-'+c.id), b = $('#b-'+c.id), pi = $('#pi-'+c.id), ph = $('#ph-'+c.id);
+    if (!t) return;
+    t.classList.toggle('alert', c.hazard);
+    /* KHÔNG thay đổi is-paused hay img.src từ WebSocket nếu có pending API call */
+    if (!pausePending.has(c.id)) {
+      const wasPaused = t.classList.contains('is-paused');
+      const nowPaused  = Boolean(c.paused);
+      if (wasPaused !== nowPaused) {
+        /* Backend state khác frontend → đồng bộ */
+        t.classList.toggle('is-paused', nowPaused);
+        if (pi) pi.textContent = nowPaused ? '▶' : '⏸';
+        if (ph) ph.textContent = nowPaused ? 'Đã dừng · Bấm để tiếp tục' : 'Bấm để tạm dừng';
+        const img = document.querySelector(`#t-${c.id} img`);
+        if (img) {
+          img.src = nowPaused
+            ? '/snapshot/' + c.id + '?t=' + Date.now()
+            : '/stream/' + c.id + '?t=' + Date.now();
+        }
+      }
+    }
+    if (Boolean(c.paused)) {
+      if (b) { b.className = 'tag badge text-bg-warning'; b.textContent = 'ĐÃ DỪNG'; }
+    } else {
+      if (b) {
+        b.className = 'tag badge text-bg-' + (!c.connected ? 'secondary' : c.hazard ? 'danger' : 'success');
+        b.textContent = !c.connected ? 'OFFLINE' : c.hazard ? 'HAZARD' : `${c.fps} FPS · 👷${c.persons}`;
+      }
+    }
+  });
+  $('#sysPill').className = 'badge text-bg-success';
+  $('#sysPill').textContent = `${st.cameras.length} camera`;
+  const errs = Object.entries(st.load_errors || {}).map(([k,v]) => `${k}: ${v}`);
+  $('#loadErr').textContent = errs.length ? '⚠ ' + errs.join(' | ') : '';
+}
+
+/* ---------- LOG ---------- */
+const today = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0,10); };
+$('#fDate').value = today();
+$('#fReload').onclick = loadLog; $('#fStatus').onchange = loadLog; $('#fDate').onchange = loadLog;
+$('#fAll').onclick = () => { $('#fDate').value = ''; loadLog(); };
+async function loadLog() {
+  const q = new URLSearchParams({date: $('#fDate').value, status: $('#fStatus').value});
+  const rows = await api('/api/events?' + q);
+  $('#logBody').innerHTML = rows.map(e => {
+    const label = (e.reason === 'scan') ? 'hazard' : e.label;
+    return `<tr class="ev" data-id="${e.id}">
+      <td>${fmt(e.start_ts)}</td><td>${e.clip ? fmt(e.end_ts) : '<span class="text-secondary">đang ghi…</span>'}</td>
+      <td>${esc(e.camera_name)}<div class="small text-secondary">${esc(e.zone)}</div></td>
+      <td><b>${esc(label)}</b><div class="small text-secondary">${esc(e.reason)}</div></td>
+      <td>${(e.confidence*100).toFixed(0)}%</td><td class="st-${e.status}">${ST[e.status]}</td></tr>`;
+  }).join('') || '<tr><td colspan="6" class="text-secondary text-center">Không có sự cố</td></tr>';
+  document.querySelectorAll('#logBody tr.ev').forEach((tr, i) => tr.onclick = () => openEvent(rows[i]));
+  refreshBadge();
+}
+async function refreshBadge() {
+  const n = (await api('/api/events?status=new')).length;
+  const b = $('#newBadge'); b.textContent = n; b.classList.toggle('d-none', !n);
+}
+const modal = new bootstrap.Modal('#evModal');
+function openEvent(e) {
+  curEvent = e;
+  const label = (e.reason === 'scan') ? 'hazard' : e.label;
+  $('#mTitle').textContent = `#${e.id} · ${label}`;
+  $('#mMedia').innerHTML = e.clip_url
+    ? `<video src="${e.clip_url}" class="w-100" controls autoplay loop></video>`
+    : (e.snapshot_url ? `<img src="${e.snapshot_url}" class="w-100"><div class="small text-warning">Clip chưa sẵn sàng.</div>` : 'Không có minh chứng');
+  $('#mInfo').innerHTML = `${esc(e.camera_name)} · ${esc(e.zone)}<br>${fmt(e.start_ts)} · tin cậy ${(e.confidence*100).toFixed(1)}% · trạng thái: <b>${ST[e.status]}</b>`;
+  $('#mReport').href = `/api/events/${e.id}/report`;
+  $('#mClip').classList.toggle('d-none', !e.clip_url); if (e.clip_url) $('#mClip').href = e.clip_url;
+  modal.show();
+}
+document.querySelectorAll('#evModal [data-st]').forEach(b => b.onclick = async () => {
+  curEvent = await api('/api/events/' + curEvent.id, jsonOpt('PATCH', {status: b.dataset.st}));
+  openEvent(curEvent); loadLog();
+});
+$('#evModal').addEventListener('hidden.bs.modal', () => $('#mMedia').innerHTML = '');
+
+/* ---------- ALERT ---------- */
+function showAlert(e) {
+  const d = document.createElement('div'); d.className = 'alert-card';
+  const label = (e.reason === 'scan') ? 'hazard' : e.label;
+  d.innerHTML = `<b>🚨 ${esc(label)}</b><div class="small">${esc(e.camera_name)} · ${(e.confidence*100).toFixed(0)}%</div>`;
+  d.onclick = () => { d.remove(); showTab('log'); };
+  $('#alertBox').prepend(d); setTimeout(() => d.remove(), 12000);
+  try { const a = new (window.AudioContext||window.webkitAudioContext)(), o = a.createOscillator();
+        o.connect(a.destination); o.frequency.value = 880; o.start(); o.stop(a.currentTime + 0.25); } catch (_) {}
+}
+
+/* ---------- SETTINGS ---------- */
+const sl = [['thr','videomae_threshold',2],['ang','lying_angle_deg',0],['dist','safe_distance',1],['cool','cooldown_s',0]];
+let saveTimer;
+function pushSettings() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(async () => {
+    const b = {enable_yolo: $('#s_yolo').checked, enable_videomae: $('#s_vm').checked};
+    sl.forEach(([id, key]) => b[key] = +$('#s_'+id).value);
+    await api('/api/settings', jsonOpt('PUT', b));
+    $('#saved').textContent = '✓ Đã lưu & áp dụng ' + new Date().toLocaleTimeString();
+  }, 300);
+}
+sl.forEach(([id,, dp]) => $('#s_'+id).oninput = () => { $('#v_'+id).textContent = (+$('#s_'+id).value).toFixed(dp); pushSettings(); });
+$('#s_yolo').onchange = $('#s_vm').onchange = pushSettings;
+async function loadSettings() {
+  const r = await api('/api/settings'), s = r.settings;
+  sl.forEach(([id, key, dp]) => { $('#s_'+id).value = s[key]; $('#v_'+id).textContent = (+s[key]).toFixed(dp); });
+  $('#s_yolo').checked = s.enable_yolo; $('#s_vm').checked = s.enable_videomae;
+  $('#m_yolo').textContent = r.modules.yolo_available ? '' : '(chưa nạp được model)';
+  $('#m_vm').textContent = r.modules.videomae_available ? '' : '(chưa nạp được model)';
+}
+async function loadCams() {
+  cams = await api('/api/cameras');
+  $('#camBody').innerHTML = cams.map(c => `<tr>
+    <td class="ps-3 fw-medium">${esc(c.name)}</td>
+    <td class="text-break small">${esc(c.source)}</td>
+    <td>${esc(c.zone || '-')}</td>
+    <td>${c.status ? (c.status.connected ? '<span class="badge text-bg-success">Online</span>' : '<span class="badge text-bg-danger">Offline</span>') : '<span class="badge text-bg-secondary">Tắt</span>'}</td>
+    <td class="text-nowrap text-end pe-3">
+      <button class="btn btn-sm btn-outline-info" data-a="test" data-id="${c.id}">Test</button>
+      <button class="btn btn-sm btn-outline-warning" data-a="toggle" data-id="${c.id}">${c.enabled ? 'Tắt' : 'Bật'}</button>
+      <button class="btn btn-sm btn-outline-secondary" data-a="edit" data-id="${c.id}">Sửa</button>
+      <button class="btn btn-sm btn-outline-danger" data-a="del" data-id="${c.id}">Xoá</button>
+    </td></tr>`).join('') || '<tr><td colspan="5" class="text-secondary text-center py-3">Chưa có camera nào</td></tr>';
+  document.querySelectorAll('#camBody button').forEach(b => b.onclick = () => camAction(b.dataset.a, cams.find(c => c.id === b.dataset.id)));
+}
+async function camAction(a, c) {
+  if (a === 'del') { if (confirm('Xoá camera ' + c.name + '?')) await api('/api/cameras/' + c.id, {method:'DELETE'}); }
+  else if (a === 'toggle') await api('/api/cameras/' + c.id, jsonOpt('PUT', {name:c.name, source:c.source, zone:c.zone, enabled:!c.enabled}));
+  else if (a === 'test') { const r = await api('/api/cameras/test', jsonOpt('POST', {source:c.source})); alert(r.message); return; }
+  else if (a === 'edit') {
+    const name = prompt('Tên camera', c.name); if (name === null) return;
+    const source = prompt('Nguồn (RTSP/file/0)', c.source); if (source === null) return;
+    const zone = prompt('Khu vực', c.zone); if (zone === null) return;
+    await api('/api/cameras/' + c.id, jsonOpt('PUT', {name, source, zone, enabled:c.enabled}));
+  }
+  setTimeout(loadCams, 500);
+}
+$('#c_test').onclick = async () => {
+  $('#c_msg').textContent = 'đang kiểm tra…';
+  try { const r = await api('/api/cameras/test', jsonOpt('POST', {source: $('#c_src').value})); $('#c_msg').textContent = r.message; }
+  catch (e) { $('#c_msg').textContent = 'lỗi'; }
+};
+$('#c_add').onclick = async () => {
+  if (!$('#c_name').value || !$('#c_src').value) return $('#c_msg').textContent = 'Nhập tên và nguồn';
+  await api('/api/cameras', jsonOpt('POST', {name:$('#c_name').value, source:$('#c_src').value, zone:$('#c_zone').value}));
+  ['c_name','c_src','c_zone'].forEach(i => $('#'+i).value = ''); $('#c_msg').textContent = 'Đã thêm'; setTimeout(loadCams, 500);
+};
+
+/* ---------- UPLOAD ---------- */
+$('#upFile').onchange = e => {
+  const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  const bar = $('#upBar'), pct = $('#upPct'), xhr = new XMLHttpRequest();
+  bar.classList.remove('d-none'); pct.style.width = '0%'; pct.textContent = '0%'; pct.className = 'progress-bar';
+  xhr.open('POST', '/api/upload?filename=' + encodeURIComponent(f.name));
+  xhr.upload.onprogress = ev => { if (ev.lengthComputable) { const p = Math.round(ev.loaded / ev.total * 100); pct.style.width = p + '%'; pct.textContent = p + '%'; } };
+  xhr.onload = () => {
+    if (xhr.status === 200) {
+      pct.className = 'progress-bar bg-success'; pct.textContent = 'Xong';
+      setTimeout(() => bar.classList.add('d-none'), 2500);
+      if (tab === 'live') setTimeout(renderGrid, 800); else setTimeout(loadCams, 800);
+    } else {
+      pct.className = 'progress-bar bg-danger'; pct.style.width = '100%';
+      let m = xhr.responseText; try { m = JSON.parse(m).detail; } catch (_) {}
+      pct.textContent = 'Lỗi'; alert('Tải lên thất bại: ' + m);
+    }
+  };
+  xhr.onerror = () => { pct.className = 'progress-bar bg-danger'; pct.textContent = 'Lỗi mạng'; };
+  xhr.send(f);
+};
+
+/* ---------- WebSocket ---------- */
+function connect() {
+  const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
+  ws.onmessage = m => {
+    const d = JSON.parse(m.data);
+    if (d.type === 'status') applyStatus(d);
+    else if (d.type === 'event') { showAlert(d.event); refreshBadge(); if (tab === 'log') loadLog(); }
+    else if (d.type === 'event_update') { if (tab === 'log') loadLog(); }
+  };
+  ws.onclose = () => { $('#sysPill').className = 'badge text-bg-danger'; $('#sysPill').textContent = 'mất kết nối'; setTimeout(connect, 2000); };
+}
+connect(); renderGrid(); refreshBadge();
+</script>
+</body>
+</html>
